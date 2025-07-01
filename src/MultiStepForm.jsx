@@ -1,0 +1,635 @@
+// React & Routing
+import React, { useState, useCallback, useMemo } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+
+// Context & Hooks
+import { useAuth } from "./context/AuthContext";
+
+// API & Utils
+import axios from "axios";
+import Swal from "sweetalert2";
+import { showQuoteForm } from "./utils/showQuoteForm";
+
+// AWS & Three.js
+import AWS from "aws-sdk";
+import { Buffer } from "buffer";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter";
+
+// Environment
+const API_BASE_URL = import.meta.env.VITE_REACT_APP_API_URL;
+
+// Assets & Data
+import "./MultiStepForm.css";
+import { interiorModels, exteriorModels, systemModels } from "./ModelData";
+
+const MultiStepForm = ({
+  setUploadProgress,
+  setUploadSuccess,
+  uploadProgress,
+  sceneRef,
+  addModelToScene,
+  removeModelFromScene,
+  getAddedQuantity,
+  showExterior,
+  toggleExterior,
+  setActiveModelId,
+  setActiveExteriorModelId,
+}) => {
+  const [isVisible] = useState(true);
+  const [activeTab, setActiveTab] = useState("interior");
+  const [currentStep, setCurrentStep] = useState(0);
+  const [lastSelectedLabel, setLastSelectedLabel] = useState(null);
+  const [selectedCard, setSelectedCard] = useState(new Set());
+
+  const [isUploading, setIsUploading] = useState(false);
+  const [modelUrl, setModelUrl] = useState("");
+
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const TYPE_CONFLICTS = {
+    "wall-ceiling-door-panel": [
+      "ceiling",
+      "wall-panel",
+      "wall-ceiling",
+      "door-panel",
+    ],
+    "wall-ceiling": [
+      "ceiling",
+      "wall-panel",
+      "wall-ceiling",
+      "wall-ceiling-door-panel",
+    ],
+    ceiling: ["wall-ceiling-door-panel", "wall-ceiling", "ceiling"],
+    "wall-panel": ["wall-ceiling-door-panel", "wall-ceiling", "wall-panel"],
+    "door-panel": ["wall-ceiling-door-panel", "door-panel"],
+  };
+
+  const stepDescriptions = {
+    "Driver’s Area": "Enhance the driver's cabin for functionality.",
+    "Behind the Driver": "Optimize space behind the driver's seat.",
+    "Bed/Dinette": "Design a versatile sleeping and dining space.",
+    Shower: "Incorporate efficient bathroom solutions.",
+    "Behind the Passenger Seat":
+      "Finish off your design by perfecting the overhead details.",
+    Panel: "Customize interior surfaces.",
+    "Rear-View": "Add features to the rear of the van.",
+    Roof: "Enhance the roof with functional elements.",
+    Windows: "Select window options for your van.",
+    "Right-Side": "Customize the right side of the van.",
+    "Left-Side": "Customize the left side of the van.",
+    Climate: "Manage your van's climate systems.",
+    Power: "Configure your van's power sources.",
+    Ventilation: "Set up ventilation systems.",
+    // Add other groups as needed.
+  };
+
+  const groupByGroup = (models) =>
+    models.reduce((acc, model) => {
+      if (!acc[model.group]) acc[model.group] = [];
+      acc[model.group].push(model);
+      return acc;
+    }, {});
+
+  const interiorSteps = Object.entries(groupByGroup(interiorModels));
+  const exteriorSteps = Object.entries(groupByGroup(exteriorModels));
+  const systemSteps = Object.entries(groupByGroup(systemModels));
+
+  let steps;
+  if (activeTab === "interior") {
+    steps = interiorSteps;
+  } else if (activeTab === "exterior") {
+    steps = exteriorSteps;
+  } else {
+    steps = systemSteps;
+  }
+
+  const handleCardClick = (model) => {
+    setSelectedCard((prevSelected) => {
+      const newSelected = new Set(prevSelected);
+      if (newSelected.has(model.label)) {
+        newSelected.delete(model.label);
+      } else {
+        newSelected.add(model.label);
+        setLastSelectedLabel(model.label); //  Track last selected
+      }
+      return newSelected;
+    });
+
+    toggleModelSelection(model);
+  };
+
+  const toggleModelSelection = (model) => {
+    const quantity = getAddedQuantity(model.label);
+
+    const maxQty =
+      {
+        awning: 2,
+        "reading-light": 3,
+        // add others here
+      }[model.type] || 1;
+
+    let storageKey =
+      activeTab === "interior"
+        ? "selectedInteriorModels"
+        : activeTab === "exterior"
+        ? "selectedExteriorModels"
+        : "selectedSystemModels";
+
+    const existing = JSON.parse(localStorage.getItem(storageKey) || "[]");
+
+    if (quantity > 0) {
+      removeModelFromScene(model.label);
+      const updated = existing.filter((item) => item !== model.label);
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+    } else {
+      // 🧠 remove all conflicting types if TYPE_CONFLICTS exists
+      const conflictTypes = TYPE_CONFLICTS[model.type] || [];
+
+      if (conflictTypes.length > 0) {
+        conflictTypes.forEach((type) => removeModelFromScene(type));
+      } else if (maxQty === 1) {
+        removeModelFromScene(model.type);
+      }
+
+      addModelToScene(model);
+
+      if (!existing.includes(model.label)) {
+        existing.push(model.label);
+        localStorage.setItem(storageKey, JSON.stringify(existing));
+      }
+    }
+  };
+
+  const scene = sceneRef.current?.getScene();
+
+  const exportScene = () => {
+    return new Promise((resolve, reject) => {
+      const scene = sceneRef.current?.getScene();
+      if (!scene) {
+        console.error("Scene is undefined.");
+        return reject(new Error("Scene is undefined"));
+      }
+
+      const BUCKET = import.meta.env.VITE_REACT_APP_AWS_S3_BUCKET_NAME;
+      const ACCESS_KEY = import.meta.env.VITE_REACT_APP_AWS_ACCESS_KEY_ID;
+      const SECRET_KEY = import.meta.env.VITE_REACT_APP_AWS_SECRET_ACCESS_KEY;
+      const REGION = import.meta.env.VITE_REACT_APP_AWS_REGION;
+
+      if (!BUCKET || !ACCESS_KEY || !SECRET_KEY || !REGION) {
+        Swal.fire({
+          icon: "error",
+          title: "AWS Configuration Error",
+          text: "Missing AWS credentials or bucket name in .env",
+        });
+        return reject(new Error("Missing AWS credentials"));
+      }
+
+      AWS.config.update({
+        accessKeyId: ACCESS_KEY,
+        secretAccessKey: SECRET_KEY,
+        region: REGION,
+      });
+
+      const s3 = new AWS.S3({ apiVersion: "2012-10-17" });
+      const formattedUserName = user?.name
+        ? user.name.replace(/\s+/g, "-").toLowerCase()
+        : "guest";
+      const exportCount = Date.now();
+      const usernameWithCount = `${formattedUserName}-${exportCount}`;
+      const userExportKey = `${usernameWithCount}-campervan-sp-144.glb`;
+
+      const exporter = new GLTFExporter();
+
+      Swal.fire({
+        title: "Please Wait...",
+        html: "Exporting your van configuration. Please wait...",
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        },
+      });
+
+      exporter.parse(
+        scene,
+        (gltf) => {
+          const params = {
+            Bucket: BUCKET,
+            Key: userExportKey,
+            Body: Buffer.from(gltf),
+            ContentType: "application/octet-stream",
+          };
+
+          const upload = s3.upload(params);
+
+          upload.on("httpUploadProgress", (progress) => {
+            const percent = Math.round(
+              (progress.loaded * 100) / progress.total
+            );
+            setUploadProgress(percent);
+            Swal.update({
+              html: `Uploading... <strong>${percent}%</strong>`,
+            });
+          });
+
+          upload.send((err, data) => {
+            setIsUploading(false);
+            if (err) {
+              console.error("S3 Upload Error:", err);
+              Swal.fire({
+                icon: "error",
+                title: "Upload Failed",
+                text: err.message || "An error occurred during S3 upload.",
+              });
+              return reject(err);
+            }
+
+            const getSignedUrlParams = {
+              Bucket: BUCKET,
+              Key: userExportKey,
+              Expires: 60 * 60 * 24 * 7, // 7 days
+            };
+
+            s3.getSignedUrl(
+              "getObject",
+              getSignedUrlParams,
+              async (err, url) => {
+                if (err) {
+                  console.error("Presigned URL Error:", err);
+                  Swal.fire({
+                    icon: "error",
+                    title: "Failed to Generate Link",
+                    text: err.message || "Could not generate access link.",
+                  });
+                  return reject(err);
+                }
+
+                setUploadProgress(0);
+                setUploadSuccess(true);
+                setModelUrl(url);
+
+                // ✅ Now return this model URL
+                resolve(url);
+              }
+            );
+          });
+        },
+        (error) => {
+          console.error("Export Error:", error);
+          setIsUploading(false);
+          Swal.fire({
+            icon: "error",
+            title: "Export Failed",
+            text: error.message || "Could not export 3D scene.",
+          });
+          reject(error);
+        },
+        { binary: true }
+      );
+    });
+  };
+
+  const handleGetQuote = async () => {
+    if (!user) {
+      showQuoteForm(async (formData) => {
+        // Require phone number for guests
+        if (!formData.phone || !formData.phone.trim()) {
+          Swal.fire({
+            icon: "warning",
+            title: "Phone Required",
+            text: "Please enter your phone number to get a quote.",
+          });
+          return;
+        }
+        try {
+          const modelUrl = await exportScene();
+          const payload = { ...formData, modelUrl };
+
+          await axios.post(`${API_BASE_URL}/api/quotes`, payload);
+
+          Swal.fire({
+            icon: "success",
+            title: "Submitted!",
+            text: "Your quote request—including your model!—has been received.",
+          });
+        } catch (err) {
+          console.error("❌ Guest quote submission failed:", err);
+          Swal.fire({
+            icon: "error",
+            title: "Oops!",
+            text: "Something went wrong while submitting your quote.",
+          });
+        }
+      });
+    } else {
+      // Require phone number for logged-in users as well
+      if (!user.phone || !user.phone.trim()) {
+        Swal.fire({
+          icon: "warning",
+          title: "Phone Required",
+          text: "Please add your phone number in your profile before requesting a quote.",
+        });
+        return;
+      }
+      try {
+        const modelUrl = await exportScene();
+        const payload = {
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          modelUrl,
+        };
+
+        await axios.post(`${API_BASE_URL}/api/quotes`, payload);
+
+        Swal.fire({
+          icon: "success",
+          title: "Submitted!",
+          text: "Your quote request has been received.",
+        });
+      } catch (err) {
+        console.error("❌ Logged-in quote submission failed:", err);
+        Swal.fire({
+          icon: "error",
+          title: "Oops!",
+          text: "Something went wrong while submitting your quote.",
+        });
+      }
+    }
+  };
+
+  const goToPrevStep = useCallback(() => {
+    if (currentStep > 0) {
+      setCurrentStep((prev) => prev - 1);
+    }
+  }, [currentStep]);
+
+  const goToNextStep = useCallback(() => {
+    if (currentStep < steps.length - 1) {
+      setCurrentStep((prev) => prev + 1);
+    }
+  }, [currentStep, steps]);
+
+  // Progress calculation for the thin bar
+
+  const progressPercentage = useMemo(() => {
+    return Math.round(((currentStep + 1) / steps.length) * 100);
+  }, [currentStep, steps.length]);
+
+  //  Utility to filter conflicting models
+  const getFilteredSelectedModels = (currentLabel, currentType) => {
+    const allModels = [...interiorModels, ...exteriorModels, ...systemModels];
+    const conflictingTypes = TYPE_CONFLICTS[currentType] || [];
+
+    return (prevSelected) => {
+      return new Set(
+        [...prevSelected].filter((label) => {
+          const model = allModels.find((m) => m.label === label);
+          return (
+            model &&
+            model.type !== currentType &&
+            !conflictingTypes.includes(model.type)
+          );
+        })
+      );
+    };
+  };
+
+  const switchTab = (tabKey) => {
+    setActiveTab(tabKey);
+    setCurrentStep(0);
+    toggleExterior(tabkey === "exterior");
+  };
+
+  // --- UI Starts Here ---
+  return (
+    <div className="main-content d-flex flex-column position-relative">
+      {/* Tab Buttons */}
+      <div
+        className="d-flex justify-content-center gap-2 pt-2 pb-2 bg-body-secondary shadow-sm sticky-top"
+        style={{ zIndex: 2 }}
+      >
+        {[
+          { key: "interior", label: "Interior", icon: "bi-house-door" },
+          { key: "exterior", label: "Exterior", icon: "bi-box" },
+          { key: "system", label: "System", icon: "bi-gear" },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            className={`btn px-3 py-2 fw-semibold shadow-sm position-relative tab-btn${
+              activeTab === tab.key ? " active" : ""
+            }`}
+            aria-current={activeTab === tab.key}
+            onClick={() => switchTab(tab.key)}
+          >
+            {/* <i className={`bi ${tab.icon} me-2`}></i> */}
+            {tab.label}
+            {activeTab === tab.key && (
+              <span
+                className="position-absolute top-0 start-100 translate-middle rounded-pill bg-success selected-indicator"
+                aria-label="Selected"
+              >
+                <span className="visually-hidden">selected</span>
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Thin Progress Bar */}
+      <div className="progress-bar-bg">
+        <div
+          className="progress-bar-fg"
+          style={{ width: `${progressPercentage}%` }}
+        />
+      </div>
+
+      <div className="mb-2 px-3 pt-3">
+        <h2 className="fs-5 fw-bold mb-1 section-title">
+          {steps[currentStep][0].replace(/-/g, " ")}
+        </h2>
+        <p className="mb-3 section-desc">
+          {stepDescriptions[steps[currentStep][0]]}
+        </p>
+      </div>
+
+      <div className="shadow p-3 main-content bg-white flex-grow-1 d-flex flex-column card-list">
+        <div className="row">
+          {steps[currentStep][1].map((model) => {
+            const isSelected = selectedCard.has(model.label);
+
+            return (
+              <div key={model.label} className="col-12 mb-3">
+                <div
+                  className={`bbv-parts clickable-card${
+                    isSelected ? " selected-card" : ""
+                  }`}
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  onClick={() => {
+                    const typeConflicts = {
+                      "wall-ceiling-door-panel": [
+                        "ceiling",
+                        "wall-panel",
+                        "wall-ceiling",
+                        "door-panel",
+                      ],
+                      "wall-ceiling": [
+                        "ceiling",
+                        "wall-panel",
+                        "wall-ceiling-door-panel",
+                      ],
+                      ceiling: [
+                        "wall-ceiling-door-panel",
+                        "wall-ceiling",
+                        "ceiling",
+                      ],
+                      "wall-panel": [
+                        "wall-ceiling-door-panel",
+                        "wall-ceiling",
+                        "wall-panel",
+                      ],
+
+                      "door-panel": ["wall-ceiling-door-panel"],
+                    };
+                    setSelectedCard((prevSelected) => {
+                      const newSelected = getFilteredSelectedModels(
+                        model.label,
+                        model.type
+                      )(prevSelected);
+
+                      if (!prevSelected.has(model.label)) {
+                        newSelected.add(model.label);
+                        setLastSelectedLabel(model.label);
+                      }
+
+                      return newSelected;
+                    });
+
+                    toggleModelSelection(model);
+                  }}
+                  onKeyDown={(e) =>
+                    (e.key === "Enter" || e.key === " ") &&
+                    (() => {
+                      setSelectedCard((prevSelected) => {
+                        const newSelected = getFilteredSelectedModels(
+                          model.label,
+                          model.type
+                        )(prevSelected);
+
+                        if (!prevSelected.has(model.label)) {
+                          newSelected.add(model.label);
+                          setLastSelectedLabel(model.label);
+                        }
+
+                        return newSelected;
+                      });
+
+                      toggleModelSelection(model);
+                    })()
+                  }
+                  onMouseEnter={(e) => e.currentTarget.classList.add("hover")}
+                  onMouseLeave={(e) =>
+                    e.currentTarget.classList.remove("hover")
+                  }
+                >
+                  <img
+                    src={model.image}
+                    alt={model.label}
+                    className="card-img"
+                  />
+                  <div className="card-content">
+                    <h6 className="mb-1 fw-semibold card-label">
+                      {model.label}
+                    </h6>
+                    {model.description && (
+                      <p className="mb-0 card-desc">{model.description}</p>
+                    )}
+                  </div>
+                  {isSelected && (
+                    <span className="badge bg-success added-badge">added</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Sticky Bottom Navigation */}
+      <div className="sticky-bottom-nav bg-white text-dark p-3 shadow-lg">
+        <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          {/* Previous/Tab Switch Button */}
+          {activeTab === "exterior" && currentStep === 0 ? (
+            <button
+              className="btn px-4 py-2 fw-semibold btn-nav-alt btn-outline-dark"
+              onClick={() => {
+                switchTab("exterior");
+              }}
+            >
+              Interior
+            </button>
+          ) : activeTab === "system" && currentStep === 0 ? (
+            <button
+              className="btn px-4 py-2 fw-semibold btn-nav-alt btn-outline-dark"
+              onClick={() => {
+                switchTab("exterior");
+              }}
+            >
+              Exterior
+            </button>
+          ) : (
+            <button
+              className="btn px-4 py-2 fw-semibold btn-nav btn-outline-dark"
+              onClick={goToPrevStep}
+              disabled={currentStep === 0}
+            >
+              Previous
+            </button>
+          )}
+
+          {/* Next, Exterior, System, or Finish Button */}
+          {activeTab === "interior" && currentStep === steps.length - 1 ? (
+            <button
+              className="btn px-4  btn-next btn-outline-dark"
+              onClick={() => {
+                switchTab("exterior");
+              }}
+            >
+              Exterior
+            </button>
+          ) : activeTab === "exterior" && currentStep === steps.length - 1 ? (
+            <button
+              className="btn px-4   btn-outline-dark"
+              onClick={() => switchTab("system")}
+            >
+              System
+            </button>
+          ) : currentStep === steps.length - 1 ? (
+            <button className="btn px-4 fw-semibold btn-done" disabled>
+              Done
+            </button>
+          ) : (
+            <button
+              className="btn px-4 fw-semibold btn-nav btn-outline-dark"
+              onClick={goToNextStep}
+            >
+              Next
+            </button>
+          )}
+        </div>
+        <div className="text-center mt-3">
+          <button
+            className="btn btn-dark btn-lg  shadow-sm  btn-quote"
+            onClick={handleGetQuote}
+          >
+            Save & Get a Quote
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MultiStepForm;
