@@ -22,6 +22,13 @@ const API_BASE_URL = import.meta.env.VITE_REACT_APP_API_URL;
 import "./MultiStepForm.css";
 import { interiorModels, exteriorModels, systemModels } from "./ModelData";
 
+//UI Components
+import TabNav from "./components/TabNav";
+import ProgressBar from "./components/ProgressBar";
+import StepTitle from "./components/StepTitle";
+import ModelCard from "./components/ModelCard";
+import BottomNavigation from "./components/BottomNavigation";
+
 const MultiStepForm = ({
   setUploadProgress,
   setUploadSuccess,
@@ -144,7 +151,7 @@ const MultiStepForm = ({
       const updated = existing.filter((item) => item !== model.label);
       localStorage.setItem(storageKey, JSON.stringify(updated));
     } else {
-      // 🧠 remove all conflicting types if TYPE_CONFLICTS exists
+      //remove all conflicting types if TYPE_CONFLICTS exists
       const conflictTypes = TYPE_CONFLICTS[model.type] || [];
 
       if (conflictTypes.length > 0) {
@@ -405,54 +412,15 @@ const MultiStepForm = ({
   // --- UI Starts Here ---
   return (
     <div className="main-content d-flex flex-column position-relative">
-      {/* Tab Buttons */}
-      <div
-        className="d-flex justify-content-center gap-2 pt-2 pb-2 bg-body-secondary shadow-sm sticky-top"
-        style={{ zIndex: 2 }}
-      >
-        {[
-          { key: "interior", label: "Interior", icon: "bi-house-door" },
-          { key: "exterior", label: "Exterior", icon: "bi-box" },
-          { key: "system", label: "System", icon: "bi-gear" },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            className={`btn px-3 py-2 fw-semibold shadow-sm position-relative tab-btn${
-              activeTab === tab.key ? " active" : ""
-            }`}
-            aria-current={activeTab === tab.key}
-            onClick={() => switchTab(tab.key)}
-          >
-            {/* <i className={`bi ${tab.icon} me-2`}></i> */}
-            {tab.label}
-            {activeTab === tab.key && (
-              <span
-                className="position-absolute top-0 start-100 translate-middle rounded-pill bg-success selected-indicator"
-                aria-label="Selected"
-              >
-                <span className="visually-hidden">selected</span>
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* Tab Navigation Component */}
+      <TabNav activeTab={activeTab} switchTab={switchTab} />
 
-      {/* Thin Progress Bar */}
-      <div className="progress-bar-bg">
-        <div
-          className="progress-bar-fg"
-          style={{ width: `${progressPercentage}%` }}
-        />
-      </div>
+      <ProgressBar percentage={progressPercentage} />
 
-      <div className="mb-2 px-3 pt-3">
-        <h2 className="fs-5 fw-bold mb-1 section-title">
-          {steps[currentStep][0].replace(/-/g, " ")}
-        </h2>
-        <p className="mb-3 section-desc">
-          {stepDescriptions[steps[currentStep][0]]}
-        </p>
-      </div>
+      <StepTitle
+        title={steps[currentStep][0].replace(/-/g, " ")}
+        description={stepDescriptions[steps[currentStep][0]]}
+      />
 
       <div className="shadow p-3 main-content bg-white flex-grow-1 d-flex flex-column card-list">
         <div className="row">
@@ -460,39 +428,30 @@ const MultiStepForm = ({
             const isSelected = selectedCard.has(model.label);
 
             return (
-              <div key={model.label} className="col-12 mb-3">
-                <div
-                  className={`bbv-parts clickable-card${
-                    isSelected ? " selected-card" : ""
-                  }`}
-                  tabIndex={0}
-                  aria-pressed={isSelected}
-                  onClick={() => {
-                    const typeConflicts = {
-                      "wall-ceiling-door-panel": [
-                        "ceiling",
-                        "wall-panel",
-                        "wall-ceiling",
-                        "door-panel",
-                      ],
-                      "wall-ceiling": [
-                        "ceiling",
-                        "wall-panel",
-                        "wall-ceiling-door-panel",
-                      ],
-                      ceiling: [
-                        "wall-ceiling-door-panel",
-                        "wall-ceiling",
-                        "ceiling",
-                      ],
-                      "wall-panel": [
-                        "wall-ceiling-door-panel",
-                        "wall-ceiling",
-                        "wall-panel",
-                      ],
+              <ModelCard
+                key={model.label}
+                model={model}
+                isSelected={isSelected}
+                onClick={() => {
+                  setSelectedCard((prevSelected) => {
+                    const newSelected = getFilteredSelectedModels(
+                      model.label,
+                      model.type
+                    )(prevSelected);
 
-                      "door-panel": ["wall-ceiling-door-panel"],
-                    };
+                    if (!prevSelected.has(model.label)) {
+                      newSelected.add(model.label);
+                      setLastSelectedLabel(model.label);
+                    }
+
+                    return newSelected;
+                  });
+
+                  toggleModelSelection(model);
+                }}
+                onKeyDown={(e) =>
+                  (e.key === "Enter" || e.key === " ") &&
+                  (() => {
                     setSelectedCard((prevSelected) => {
                       const newSelected = getFilteredSelectedModels(
                         model.label,
@@ -508,126 +467,25 @@ const MultiStepForm = ({
                     });
 
                     toggleModelSelection(model);
-                  }}
-                  onKeyDown={(e) =>
-                    (e.key === "Enter" || e.key === " ") &&
-                    (() => {
-                      setSelectedCard((prevSelected) => {
-                        const newSelected = getFilteredSelectedModels(
-                          model.label,
-                          model.type
-                        )(prevSelected);
-
-                        if (!prevSelected.has(model.label)) {
-                          newSelected.add(model.label);
-                          setLastSelectedLabel(model.label);
-                        }
-
-                        return newSelected;
-                      });
-
-                      toggleModelSelection(model);
-                    })()
-                  }
-                  onMouseEnter={(e) => e.currentTarget.classList.add("hover")}
-                  onMouseLeave={(e) =>
-                    e.currentTarget.classList.remove("hover")
-                  }
-                >
-                  <img
-                    src={model.image}
-                    alt={model.label}
-                    className="card-img"
-                  />
-                  <div className="card-content">
-                    <h6 className="mb-1 fw-semibold card-label">
-                      {model.label}
-                    </h6>
-                    {model.description && (
-                      <p className="mb-0 card-desc">{model.description}</p>
-                    )}
-                  </div>
-                  {isSelected && (
-                    <span className="badge bg-success added-badge">added</span>
-                  )}
-                </div>
-              </div>
+                  })()
+                }
+                onHoverStart={(e) => e.currentTarget.classList.add("hover")}
+                onHoverEnd={(e) => e.currentTarget.classList.remove("hover")}
+              />
             );
           })}
         </div>
       </div>
 
-      {/* Sticky Bottom Navigation */}
-      <div className="sticky-bottom-nav bg-white text-dark p-3 shadow-lg">
-        <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-          {/* Previous/Tab Switch Button */}
-          {activeTab === "exterior" && currentStep === 0 ? (
-            <button
-              className="btn px-4 py-2 fw-semibold btn-nav-alt btn-outline-dark"
-              onClick={() => {
-                switchTab("exterior");
-              }}
-            >
-              Interior
-            </button>
-          ) : activeTab === "system" && currentStep === 0 ? (
-            <button
-              className="btn px-4 py-2 fw-semibold btn-nav-alt btn-outline-dark"
-              onClick={() => {
-                switchTab("exterior");
-              }}
-            >
-              Exterior
-            </button>
-          ) : (
-            <button
-              className="btn px-4 py-2 fw-semibold btn-nav btn-outline-dark"
-              onClick={goToPrevStep}
-              disabled={currentStep === 0}
-            >
-              Previous
-            </button>
-          )}
-
-          {/* Next, Exterior, System, or Finish Button */}
-          {activeTab === "interior" && currentStep === steps.length - 1 ? (
-            <button
-              className="btn px-4  btn-next btn-outline-dark"
-              onClick={() => {
-                switchTab("exterior");
-              }}
-            >
-              Exterior
-            </button>
-          ) : activeTab === "exterior" && currentStep === steps.length - 1 ? (
-            <button
-              className="btn px-4   btn-outline-dark"
-              onClick={() => switchTab("system")}
-            >
-              System
-            </button>
-          ) : currentStep === steps.length - 1 ? (
-            <button className="btn px-4 fw-semibold btn-done" disabled>
-              Done
-            </button>
-          ) : (
-            <button
-              className="btn px-4 fw-semibold btn-nav btn-outline-dark"
-              onClick={goToNextStep}
-            >
-              Next
-            </button>
-          )}
-        </div>
-        <div className="text-center mt-3">
-          <button
-            className="btn btn-dark btn-lg  shadow-sm  btn-quote"
-            onClick={handleGetQuote}
-          >
-            Save & Get a Quote
-          </button>
-        </div>
-      </div>
+      <BottomNavigation
+        activeTab={activeTab}
+        currentStep={currentStep}
+        steps={steps}
+        goToPrevStep={goToPrevStep}
+        goToNextStep={goToNextStep}
+        switchTab={switchTab}
+        handleGetQuote={handleGetQuote}
+      />
     </div>
   );
 };
