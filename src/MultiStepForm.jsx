@@ -124,8 +124,6 @@ const MultiStepForm = ({
     }
   };
 
-  const scene = sceneRef.current?.getScene();
-
   const handleGetQuote = async () => {
     if (!user) {
       showQuoteForm(async (formData) => {
@@ -231,6 +229,23 @@ const MultiStepForm = ({
     setCurrentStep(0);
     toggleExterior(tabkey === "exterior");
   };
+  const handleModelInteraction = (model) => {
+    setSelectedCard((prevSelected) => {
+      const newSelected = getFilteredSelectedModels(
+        model.label,
+        model.type
+      )(prevSelected);
+
+      if (!prevSelected.has(model.label)) {
+        newSelected.add(model.label);
+        setLastSelectedLabel(model.label);
+      }
+
+      return newSelected;
+    });
+
+    toggleModelSelection(model);
+  };
 
   // --- UI Starts Here ---
   return (
@@ -255,42 +270,10 @@ const MultiStepForm = ({
                 key={model.label}
                 model={model}
                 isSelected={isSelected}
-                onClick={() => {
-                  setSelectedCard((prevSelected) => {
-                    const newSelected = getFilteredSelectedModels(
-                      model.label,
-                      model.type
-                    )(prevSelected);
-
-                    if (!prevSelected.has(model.label)) {
-                      newSelected.add(model.label);
-                      setLastSelectedLabel(model.label);
-                    }
-
-                    return newSelected;
-                  });
-
-                  toggleModelSelection(model);
-                }}
+                onClick={() => handleModelInteraction(model)}
                 onKeyDown={(e) =>
                   (e.key === "Enter" || e.key === " ") &&
-                  (() => {
-                    setSelectedCard((prevSelected) => {
-                      const newSelected = getFilteredSelectedModels(
-                        model.label,
-                        model.type
-                      )(prevSelected);
-
-                      if (!prevSelected.has(model.label)) {
-                        newSelected.add(model.label);
-                        setLastSelectedLabel(model.label);
-                      }
-
-                      return newSelected;
-                    });
-
-                    toggleModelSelection(model);
-                  })()
+                  handleModelInteraction(model)
                 }
                 onHoverStart={(e) => e.currentTarget.classList.add("hover")}
                 onHoverEnd={(e) => e.currentTarget.classList.remove("hover")}

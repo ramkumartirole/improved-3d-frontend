@@ -1,4 +1,5 @@
 import React from "react";
+import PropTypes from "prop-types";
 
 const StepTitle = ({ title, description }) => {
   return (
@@ -7,6 +8,11 @@ const StepTitle = ({ title, description }) => {
       <p className="mb-3 section-desc">{description}</p>
     </div>
   );
+};
+
+StepTitle.propTypes = {
+  title: PropTypes.string.isRequired,
+  description: PropTypes.string.isRequired,
 };
 
 export default StepTitle;

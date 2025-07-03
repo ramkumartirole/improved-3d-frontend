@@ -1,4 +1,5 @@
 import React from "react";
+import PropTypes from "prop-types";
 
 const ModelCard = ({
   model,
@@ -34,6 +35,20 @@ const ModelCard = ({
       </div>
     </div>
   );
+};
+
+ModelCard.propTypes = {
+  model: PropTypes.shape({
+    label: PropTypes.string.isRequired,
+    image: PropTypes.string.isRequired,
+    description: PropTypes.string,
+    type: PropTypes.string.isRequired,
+  }).isRequired,
+  isSelected: PropTypes.bool.isRequired,
+  onClick: PropTypes.func.isRequired,
+  onKeyDown: PropTypes.func.isRequired,
+  onHoverStart: PropTypes.func,
+  onHoverEnd: PropTypes.func,
 };
 
 export default ModelCard;

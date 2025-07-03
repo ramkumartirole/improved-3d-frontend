@@ -1,4 +1,5 @@
 import React from "react";
+import PropTypes from "prop-types";
 
 const tabs = [
   { key: "interior", label: "Interior", icon: "bi-house-door" },
@@ -34,6 +35,11 @@ const TabNav = ({ activeTab, switchTab }) => {
       ))}
     </div>
   );
+};
+
+TabNav.propTypes = {
+  activeTab: PropTypes.string.isRequired,
+  switchTab: PropTypes.func.isRequired,
 };
 
 export default TabNav;

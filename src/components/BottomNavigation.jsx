@@ -1,4 +1,5 @@
 import React from "react";
+import PropTypes from "prop-types";
 
 const BottomNavigation = ({
   activeTab,
@@ -99,4 +100,13 @@ const BottomNavigation = ({
   );
 };
 
+BottomNavigation.propTypes = {
+  activeTab: PropTypes.string.isRequired,
+  currentStep: PropTypes.number.isRequired,
+  steps: PropTypes.array.isRequired,
+  goToPrevStep: PropTypes.func.isRequired,
+  goToNextStep: PropTypes.func.isRequired,
+  switchTab: PropTypes.func.isRequired,
+  handleGetQuote: PropTypes.func.isRequired,
+};
 export default BottomNavigation;
