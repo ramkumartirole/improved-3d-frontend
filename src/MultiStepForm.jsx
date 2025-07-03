@@ -1,6 +1,13 @@
 // React & Routing
 import React, { useState, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import {
+  groupByGroup,
+  getFilteredSelectedModels,
+  getStepsByTab,
+  TYPE_CONFLICTS,
+  stepDescriptions,
+} from "./utils/formUtils";
 
 // Context & Hooks
 import { useAuth } from "./context/AuthContext";
@@ -55,62 +62,14 @@ const MultiStepForm = ({
   const navigate = useNavigate();
   const location = useLocation();
 
-  const TYPE_CONFLICTS = {
-    "wall-ceiling-door-panel": [
-      "ceiling",
-      "wall-panel",
-      "wall-ceiling",
-      "door-panel",
-    ],
-    "wall-ceiling": [
-      "ceiling",
-      "wall-panel",
-      "wall-ceiling",
-      "wall-ceiling-door-panel",
-    ],
-    ceiling: ["wall-ceiling-door-panel", "wall-ceiling", "ceiling"],
-    "wall-panel": ["wall-ceiling-door-panel", "wall-ceiling", "wall-panel"],
-    "door-panel": ["wall-ceiling-door-panel", "door-panel"],
-  };
-
-  const stepDescriptions = {
-    "Driver’s Area": "Enhance the driver's cabin for functionality.",
-    "Behind the Driver": "Optimize space behind the driver's seat.",
-    "Bed/Dinette": "Design a versatile sleeping and dining space.",
-    Shower: "Incorporate efficient bathroom solutions.",
-    "Behind the Passenger Seat":
-      "Finish off your design by perfecting the overhead details.",
-    Panel: "Customize interior surfaces.",
-    "Rear-View": "Add features to the rear of the van.",
-    Roof: "Enhance the roof with functional elements.",
-    Windows: "Select window options for your van.",
-    "Right-Side": "Customize the right side of the van.",
-    "Left-Side": "Customize the left side of the van.",
-    Climate: "Manage your van's climate systems.",
-    Power: "Configure your van's power sources.",
-    Ventilation: "Set up ventilation systems.",
-    // Add other groups as needed.
-  };
-
-  const groupByGroup = (models) =>
-    models.reduce((acc, model) => {
-      if (!acc[model.group]) acc[model.group] = [];
-      acc[model.group].push(model);
-      return acc;
-    }, {});
-
-  const interiorSteps = Object.entries(groupByGroup(interiorModels));
-  const exteriorSteps = Object.entries(groupByGroup(exteriorModels));
-  const systemSteps = Object.entries(groupByGroup(systemModels));
-
-  let steps;
-  if (activeTab === "interior") {
-    steps = interiorSteps;
-  } else if (activeTab === "exterior") {
-    steps = exteriorSteps;
-  } else {
-    steps = systemSteps;
-  }
+  const steps = useMemo(() => {
+    return getStepsByTab(
+      activeTab,
+      interiorModels,
+      exteriorModels,
+      systemModels
+    );
+  }, [activeTab]);
 
   const handleCardClick = (model) => {
     setSelectedCard((prevSelected) => {
@@ -383,25 +342,6 @@ const MultiStepForm = ({
   const progressPercentage = useMemo(() => {
     return Math.round(((currentStep + 1) / steps.length) * 100);
   }, [currentStep, steps.length]);
-
-  //  Utility to filter conflicting models
-  const getFilteredSelectedModels = (currentLabel, currentType) => {
-    const allModels = [...interiorModels, ...exteriorModels, ...systemModels];
-    const conflictingTypes = TYPE_CONFLICTS[currentType] || [];
-
-    return (prevSelected) => {
-      return new Set(
-        [...prevSelected].filter((label) => {
-          const model = allModels.find((m) => m.label === label);
-          return (
-            model &&
-            model.type !== currentType &&
-            !conflictingTypes.includes(model.type)
-          );
-        })
-      );
-    };
-  };
 
   const switchTab = (tabKey) => {
     setActiveTab(tabKey);
