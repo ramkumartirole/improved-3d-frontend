@@ -29,11 +29,12 @@ import {
 } from "../../customeHooks/removeScene"
 import ViewButtons from "../buttons/ViewButtons"
 import MultiStepForm from "../../MultiStepForm";
-import Van_White from "../../components/van-models/WhiteVan";
+import Van_White from "../van-models/WhiteVan";
 import { ModelPreloader } from "../model-preloader/modelPreloader";
 import { useVanContext } from "../../context/VanContext";
 import PropTypes from "prop-types";
 import { Canvas, useThree } from "@react-three/fiber";
+import { focusOnModel } from "../../customeHooks/cameraPosition";
 
 
 
@@ -76,9 +77,12 @@ function WhiteVan() {
   const [activeModelId, setActiveModelId] = useState(null);
   const [sceneToExport, setSceneToExport] = useState(null);
   const [showExterior, setShowExterior] = useState(false);
-  const groupRef = useRef();
+  // const groupRef = useRef();
   const orbitControlsRef = useRef();
   const sceneRef = useRef();
+  const cameraRef = useRef();
+  const modelRefs = useRef({});
+
 
   // const currentModel = addedModels.find((m) => m.id === activeModelId);
 
@@ -141,6 +145,25 @@ function WhiteVan() {
     };
   }, [sceneToExport]);
   ModelPreloader(vanName)
+
+
+
+
+
+const CameraAssigner = ({ cameraRef }) => {
+  const { camera } = useThree();
+
+  useEffect(() => {
+    if (cameraRef) {
+      cameraRef.current = camera;
+    }
+  }, [camera]);
+
+  return null;
+};
+
+
+
   return (
     <div className="container-fluid">
       <div className="row d-flex">
@@ -152,12 +175,14 @@ function WhiteVan() {
           <Suspense fallback={<span className="loading">Loading...</span>}>
             <div className="canvas-container">
               <Canvas
+              ref={cameraRef}
                 gl={{ preserveDrawingBuffer: true }}
                 shadows={{ type: "PCFSoftShadowMap" }}
                 dpr={[1, 1.2]}
                 camera={{ position: [-4, 3, -4.8], fov: 50 }}
                 frameloop="demand"
               >
+                 <CameraAssigner cameraRef={cameraRef} />
 
                 <ambientLight intensity={0.25} />
                 <Suspense fallback={null}>
@@ -188,6 +213,14 @@ function WhiteVan() {
                         opacity={0.9}
                         hoveredColor={0xfff200}
                         enabled={isPivotoff && isActive}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          focusOnModel(
+                            modelRefs.current[model.id],
+                            cameraRef.current,
+                            orbitControlsRef.current
+                          );
+                        }}
                       // onDragEnd={() =>
                       //   handleDragEnd({
                       //     showExterior,
@@ -203,8 +236,14 @@ function WhiteVan() {
                       // }
                       >
                         <group
-                          ref={isActive ? groupRef : null}
-                          position={model.position}
+                         ref={(el) => {
+                          if (el) {
+                            modelRefs.current[model.id] = el;
+                          }
+                        }}
+                        position={model.position}
+                          // ref={isActive ? groupRef : null}
+                          // position={model.position}
                         >
                           <ModelComponent
                             onClick={() => setActiveModelId(model.id)}
@@ -222,6 +261,9 @@ function WhiteVan() {
                   enableZoom
                   enablePan={false}
                   maxPolarAngle={Math.PI / 2}
+                  maxDistance={10}
+                  minDistance={0.1 }
+                
                 />
                 <ExportableScene
                   ref={sceneRef}
@@ -235,7 +277,7 @@ function WhiteVan() {
           <MultiStepForm
             isSelected={isSelected}
             addModelToScene={(m) =>
-              addModelToScene(m, addedModels, setAddedModels, setActiveModelId)
+              addModelToScene(m, addedModels, setAddedModels, setActiveModelId, modelRefs, cameraRef, orbitControlsRef)
             }
             removeModelFromScene={(label) =>
               removeModelFromScene(label, setAddedModels)
